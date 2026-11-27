@@ -231,7 +231,7 @@ function handleEvents() {
   engine.events.length = 0;
 }
 
-/* ---------------- end-of-run behavior (after outermost exit) ---------------- */
+/* ---------------- end-of-run behavior (after balls leave screen) ---------------- */
 
 function checkEndBehavior(frameDt, simDt) {
   if (clearedScene) return;
@@ -242,13 +242,16 @@ function checkEndBehavior(frameDt, simDt) {
   if (active === 0 && !pending) {
     if (cfg.behavior.endMode === 'stop') {
       stopDelay += simDt;
-      if (stopDelay >= 0.45 || engine.balls.length === 0) {
+      if (engine.balls.length === 0 || stopDelay >= 0.45) {
         stopDelay = 0;
         if (!paused) setPaused(true);
       }
     } else if (cfg.behavior.endMode === 'auto') {
       restartDelay += frameDt;
-      if (restartDelay >= 0.9) {
+      if (restartDelay >= 0.55 && engine.balls.length === 0) {
+        restartDelay = 0;
+        engine.restart();
+      } else if (restartDelay >= 1.1) {
         restartDelay = 0;
         engine.restart();
       }

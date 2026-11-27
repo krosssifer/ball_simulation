@@ -369,8 +369,8 @@ test('Stage 2 & 6: compatibility warning, panel toggle, and theme switch without
   assert.equal(ballAfter.vx, ballBefore.vx);
 });
 
-test('Scenarios 6 & 7: stop and auto-restart wait until all active balls pass outermostRing', () => {
-  // Scenario 6: stop after last ball exits 3 rings
+test('Scenarios 6 & 7: stop and auto-restart wait until all balls fly completely off-screen', () => {
+  // Scenario 6: stop after last ball leaves the screen
   const appStop = bootApp();
   appStop.evalExpr(`
     cfg.scene.ringCount = 3;
@@ -379,24 +379,23 @@ test('Scenarios 6 & 7: stop and auto-restart wait until all active balls pass ou
     engine.restart();
   `);
 
-  let pausedInsideOuter = false;
-  for (let f = 0; f < 1800; f++) {
+  let pausedWhileOnScreen = false;
+  for (let f = 0; f < 2000; f++) {
     appStop.stepFrames(1, 1 / 60);
     const state = appStop.evalExpr(`({
       paused,
-      active: engine.activeBallCount(),
-      insideOuter: engine.balls.some(b => Math.hypot(b.x - engine.cx, b.y - engine.cy) < engine.outermostRing.R)
+      anyOnScreen: engine.balls.some(b => !engine.isOffscreen(b))
     })`);
-    if (state.paused && state.insideOuter) {
-      pausedInsideOuter = true;
+    if (state.paused && state.anyOnScreen) {
+      pausedWhileOnScreen = true;
       break;
     }
     if (state.paused) break;
   }
-  assert.equal(pausedInsideOuter, false, 'Must never pause while ball is still inside outer rings');
-  assert.equal(appStop.evalExpr('paused'), true, 'Simulation should pause after ball exits outermostRing');
+  assert.equal(pausedWhileOnScreen, false, 'Must never pause while a ball is still visible on screen');
+  assert.equal(appStop.evalExpr('paused'), true, 'Simulation should pause after balls fly off-screen');
 
-  // Scenario 7: auto-restart after traversing 3 rings
+  // Scenario 7: auto-restart waits until all balls fly off-screen (never wipes a ball mid-screen)
   const appAuto = bootApp();
   appAuto.evalExpr(`
     cfg.scene.ringCount = 3;
@@ -408,18 +407,18 @@ test('Scenarios 6 & 7: stop and auto-restart wait until all active balls pass ou
     _orig();
   `);
 
-  let restartedPrematurely = false;
-  for (let f = 0; f < 2000; f++) {
-    const hadInsideBefore = appAuto.evalExpr('engine.balls.some(b => !b.escaped && Math.hypot(b.x - engine.cx, b.y - engine.cy) < engine.outermostRing.R)');
+  let restartedWhileOnScreen = false;
+  for (let f = 0; f < 2200; f++) {
+    const hadOnScreenBefore = appAuto.evalExpr('engine.balls.some(b => !engine.isOffscreen(b))');
     const prevCount = appAuto.evalExpr('window.__autoRestarts');
     appAuto.stepFrames(1, 1 / 60);
     const nextCount = appAuto.evalExpr('window.__autoRestarts');
-    if (nextCount > prevCount && hadInsideBefore) {
-      restartedPrematurely = true;
+    if (nextCount > prevCount && hadOnScreenBefore) {
+      restartedWhileOnScreen = true;
       break;
     }
     if (nextCount >= 1) break;
   }
-  assert.equal(restartedPrematurely, false, 'Auto-restart must never fire while balls are inside outer rings');
-  assert.ok(appAuto.evalExpr('window.__autoRestarts') >= 1, 'Auto-restart should trigger after outermost exit');
+  assert.equal(restartedWhileOnScreen, false, 'Auto-restart must never wipe balls that are still on screen');
+  assert.ok(appAuto.evalExpr('window.__autoRestarts') >= 1, 'Auto-restart should trigger after balls fly off-screen');
 });

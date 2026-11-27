@@ -101,17 +101,9 @@ class Renderer {
     };
   }
 
-  /* Fade is strictly computed relative to outermostRing — never intermediate rings */
-  ballFade(ball, engine) {
-    if (!ball.escaped) return 1;
-    const outer = engine.outermostRing;
-    if (!outer) return 1;
-    const dist = Math.hypot(ball.x - engine.cx, ball.y - engine.cy);
-    const t = engine.effWallThickness || engine.cfg.scene.wallThickness;
-    const outerEdge = outer.R + t * 0.5 + ball.r + 12;
-    const distFade = 1 - Math.max(0, dist - outerEdge) / 175;
-    const timeFade = ball.escapeTime > 0.9 ? 1 - (ball.escapeTime - 0.9) / 1.4 : 1;
-    return Math.max(0, Math.min(1, Math.min(distFade, timeFade)));
+  /* Ball remains at full opacity across the entire screen until it flies off-screen */
+  ballFade(_ball, _engine) {
+    return 1;
   }
 
   interpolateTheme(dt) {

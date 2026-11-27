@@ -453,6 +453,37 @@ class Engine {
     }
   }
 
+  isOffscreen(ball) {
+    const w = this.w || 1280;
+    const h = this.h || 800;
+    return (
+      ball.x + ball.r < 0 ||
+      ball.x - ball.r > w ||
+      ball.y + ball.r < 0 ||
+      ball.y - ball.r > h
+    );
+  }
+
+  isFullyClearedScreen(ball) {
+    if (!this.isOffscreen(ball)) return false;
+    const w = this.w || 1280;
+    const h = this.h || 800;
+    const pad = ball.r + 24;
+    if (ball.x >= -pad && ball.x <= w + pad && ball.y >= -pad && ball.y <= h + pad) {
+      return false;
+    }
+    if (ball.trail && ball.trail.length > 0) {
+      const cutoff = this.time - this.maxTrailDuration();
+      for (let i = 0; i < ball.trail.length; i++) {
+        const pt = ball.trail[i];
+        if (pt.t >= cutoff && pt.x >= -ball.r && pt.x <= w + ball.r && pt.y >= -ball.r && pt.y <= h + ball.r) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   hasPendingSpawns() {
     const b = this.cfg.balls;
     return b.spawnMode === 'sequential' &&
@@ -462,7 +493,7 @@ class Engine {
   activeBallCount() {
     let n = 0;
     for (const b of this.balls) {
-      if (!b.escaped) n++;
+      if (!this.isOffscreen(b)) n++;
     }
     return n;
   }
@@ -557,13 +588,25 @@ class Engine {
         }
       }
 
-      if (arcade) {
+      if (arcade && !ball.escaped) {
         const tc = Math.exp(-1.9 * dt);
         const sigma = TURB_V * Math.sqrt(Math.max(0, 1 - tc * tc));
         ball.turbvx = (ball.turbvx || 0) * tc + (Math.random() - 0.5) * 2 * sigma;
         ball.turby = (ball.turby || 0) * tc + (Math.random() - 0.5) * 2 * sigma;
         ball.vx += ball.turbvx * dt;
         ball.vy += ball.turby * dt;
+      }
+
+      // Prevent an escaped ball from stalling motionless mid-screen in zero-gravity + high-drag configs
+      if (ball.escaped && p.gravity < 5 && retention === 0) {
+        const curSp = Math.hypot(ball.vx, ball.vy);
+        if (curSp < 55) {
+          const dx = ball.x - this.cx;
+          const dy = ball.y - this.cy;
+          const d = Math.hypot(dx, dy) || 1;
+          ball.vx = (dx / d) * 55;
+          ball.vy = (dy / d) * 55;
+        }
       }
 
       const sp = Math.hypot(ball.vx, ball.vy);
@@ -614,9 +657,8 @@ class Engine {
       }
     }
 
-    // Definitive escape check strictly relative to outermostRing.
+    // Definitive ring-exit detection & off-screen removal.
     const outerRing = this.outermostRing;
-    const diag = Math.hypot(this.w || 1280, this.h || 800);
 
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const ball = this.balls[i];
@@ -626,24 +668,30 @@ class Engine {
       const dy = ball.y - this.cy;
       const od = Math.hypot(dx, dy);
 
-      if (outerRing && !ball.escaped) {
-        const outerClear = outerRing.R + hw + ball.r;
-        if (od > outerClear + 12) {
-          const vr = od > 1e-6 ? (dx * ball.vx + dy * ball.vy) / od : 0;
-          if (vr >= -20 || od > outerClear + 36) {
-            ball.escaped = true;
-            ball.escapeTime = 0;
-            const nx = od > 1e-6 ? dx / od : 1;
-            const ny = od > 1e-6 ? dy / od : 0;
-            this.pushEvent({
-              type: 'escape',
-              x: ball.x,
-              y: ball.y,
-              nx,
-              ny,
-              hueShift: ball.hueShift
-            });
+      if (outerRing) {
+        if (!ball.escaped) {
+          const outerClear = outerRing.R + hw + ball.r;
+          if (od > outerClear + 12) {
+            const vr = od > 1e-6 ? (dx * ball.vx + dy * ball.vy) / od : 0;
+            if (vr >= -20 || od > outerClear + 36) {
+              ball.escaped = true;
+              ball.escapeTime = 0;
+              const nx = od > 1e-6 ? dx / od : 1;
+              const ny = od > 1e-6 ? dy / od : 0;
+              this.pushEvent({
+                type: 'escape',
+                x: ball.x,
+                y: ball.y,
+                nx,
+                ny,
+                hueShift: ball.hueShift
+              });
+            }
           }
+        } else if (od < outerRing.R - hw) {
+          // If gravity pulled a ball back through a top opening into the ring
+          ball.escaped = false;
+          ball.escapeTime = 0;
         }
       }
 
@@ -651,8 +699,8 @@ class Engine {
         ball.escapeTime += dt;
       }
 
-      // Remove only after leaving visible viewport or completing post-escape fade.
-      if (od > diag + 140 || (ball.escaped && ball.escapeTime > 2.5)) {
+      // Remove ONLY after both the ball and its visible trail have flown beyond screen bounds.
+      if (this.isFullyClearedScreen(ball)) {
         this.balls.splice(i, 1);
       }
     }

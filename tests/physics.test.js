@@ -78,41 +78,72 @@ test('Stage 1: explicit innermostRing vs outermostRing ordering and initial spaw
   }
 });
 
-test('Scenario 1: 1 ring and 1 ball — finds hole, exits outermostRing, fades outside', () => {
+test('Scenario 1: 1 ring and 1 ball — stays fully visible past circle and disappears ONLY off-screen', () => {
   const cfg = clone(DEFAULTS);
   const engine = new Engine(cfg);
   const renderer = new Renderer(createMockCanvas());
-  engine.setViewport(1280, 800);
+  engine.setViewport(1920, 1080);
   engine.restart();
 
   const ball = engine.balls[0];
   assert.equal(renderer.ballFade(ball, engine), 1);
 
   let escaped = false;
+  let seenEscapedOnScreen = false;
+  let lastOffscreenBeforeRemoval = false;
   let escapeEventCount = 0;
   const maxSteps = Math.round(45 / FIXED_DT);
 
   for (let s = 0; s < maxSteps; s++) {
+    const wasOffscreen = engine.isOffscreen(ball);
     engine.step(FIXED_DT);
     for (const ev of engine.events) {
       if (ev.type === 'escape') escapeEventCount++;
     }
     engine.events.length = 0;
 
-    if (!ball.escaped) {
-      assert.equal(renderer.ballFade(ball, engine), 1, 'Unescaped ball must never fade');
-    } else if (!escaped) {
-      escaped = true;
-      const dist = Math.hypot(ball.x - engine.cx, ball.y - engine.cy);
-      const outerBorder = engine.outermostRing.R + engine.effWallThickness * 0.5 + ball.r;
-      assert.ok(dist > outerBorder, 'Ball marked escaped before clearing outermostRing');
+    if (engine.balls.includes(ball)) {
+      // While the ball exists anywhere on screen (inside or outside circle), opacity MUST stay 1
+      assert.equal(renderer.ballFade(ball, engine), 1, 'Ball must not fade out before leaving the screen');
+      if (ball.escaped && !engine.isOffscreen(ball)) {
+        seenEscapedOnScreen = true;
+      }
+      if (!escaped && ball.escaped) {
+        escaped = true;
+        const dist = Math.hypot(ball.x - engine.cx, ball.y - engine.cy);
+        const outerBorder = engine.outermostRing.R + engine.effWallThickness * 0.5 + ball.r;
+        assert.ok(dist > outerBorder, 'Ball marked escaped before clearing outermostRing');
+      }
+    } else {
+      lastOffscreenBeforeRemoval = wasOffscreen || engine.isOffscreen(ball);
+      break;
     }
-
-    if (escaped && engine.balls.length === 0) break;
   }
 
   assert.ok(escaped, 'Ball should find the opening and exit within 45s');
+  assert.ok(seenEscapedOnScreen, 'Ball must remain visible while flying from circle to screen edge');
+  assert.ok(lastOffscreenBeforeRemoval, 'Ball must ONLY be removed after flying beyond screen bounds');
   assert.equal(escapeEventCount, 1);
+
+  // Also verify a slow escaped ball (> 4 seconds on screen) is NEVER deleted mid-screen by a timer
+  const slowEngine = new Engine(clone(DEFAULTS));
+  slowEngine.cfg.balls.initialSpeed = 90;
+  slowEngine.setViewport(1920, 1080);
+  slowEngine.balls = [{
+    x: 960 + 360, y: 540, px: 960 + 360, py: 540,
+    vx: 90, vy: 0, r: 14, m: 1,
+    escaped: true, escapeTime: 0, hueShift: 0,
+    ringSide: { 0: 1 }, turbvx: 0, turby: 0,
+    trail: [{ x: 960 + 360, y: 540, t: 0 }], lastTrailT: 0
+  }];
+  slowEngine.cfg.physics.gravity = 0;
+  slowEngine.cfg.physics.drag = 0;
+  // Advance 4.0 seconds (360px -> +360px = 1680px < 1920px, still on screen!)
+  for (let s = 0; s < Math.round(4.0 / FIXED_DT); s++) {
+    slowEngine.step(FIXED_DT);
+  }
+  assert.equal(slowEngine.balls.length, 1, 'Slow escaped ball still on screen after 4s must NOT disappear');
+  assert.equal(slowEngine.isOffscreen(slowEngine.balls[0]), false);
 });
 
 test('Scenario 2: 5 concentric rings and 1 ball — sequential traversal without premature fade/escape', () => {
