@@ -16,6 +16,7 @@ const DEFAULTS = {
     holeSize: 42,           // hole angular width, degrees
     holePosition: 90,       // hole center angle, degrees (90 = bottom)
     holeOffset: 0,          // extra angle offset per inner ring, degrees
+    vanishOnPass: false,    // vanish each ring once a ball passes through it
     rotationEnabled: false,
     rotationDirection: 1,   // 1 = clockwise, -1 = counter-clockwise
     rotationSpeed: 28       // degrees per second
@@ -150,6 +151,7 @@ function sanitizeConfig(cfg) {
   s.holeSize = clampNum(s.holeSize, 8, 70, DEFAULTS.scene.holeSize);
   s.holePosition = clampNum(s.holePosition, 0, 359, DEFAULTS.scene.holePosition);
   s.holeOffset = clampNum(s.holeOffset, 0, 180, DEFAULTS.scene.holeOffset);
+  s.vanishOnPass = Boolean(s.vanishOnPass);
   s.rotationEnabled = Boolean(s.rotationEnabled);
   s.rotationDirection = s.rotationDirection === -1 ? -1 : 1;
   s.rotationSpeed = clampNum(s.rotationSpeed, 5, 180, DEFAULTS.scene.rotationSpeed);

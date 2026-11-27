@@ -169,6 +169,7 @@ class Renderer {
 
     for (let idx = 0; idx < engine.rings.length; idx++) {
       const ring = engine.rings[idx];
+      if (ring.broken) continue;
       const hc = ring.baseAngle + ring.rot;
       const arcHalf = ring.arcHoleHalf !== undefined ? ring.arcHoleHalf : ring.holeHalf;
       const start = hc + arcHalf;

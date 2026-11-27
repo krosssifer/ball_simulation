@@ -43,6 +43,7 @@ const SCHEMA = [
       { type: 'slider', path: 'scene.holePosition', label: 'Положение отверстия', min: 0, max: 359, step: 1, unit: '°' },
       { type: 'slider', path: 'scene.holeOffset', label: 'Смещение отверстий', min: 0, max: 180, step: 1, unit: '°',
         when: c => c.scene.ringCount > 1 },
+      { type: 'toggle', path: 'scene.vanishOnPass', label: 'Исчезновение пройденных окружностей' },
       { type: 'toggle', path: 'scene.rotationEnabled', label: 'Вращение окружностей' },
       { type: 'segmented', path: 'scene.rotationDirection', label: 'Направление вращения',
         when: c => Boolean(c.scene.rotationEnabled),

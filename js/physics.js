@@ -128,7 +128,7 @@ class Engine {
 
   /* ---------------- geometry & compatibility solver ---------------- */
 
-  rebuildRings() {
+  rebuildRings(resetBroken = false) {
     const s = this.cfg.scene;
     const w = this.w || 1280;
     const h = this.h || 800;
@@ -200,6 +200,8 @@ class Engine {
     this.effSpacing = effSpacing;
 
     const oldRots = this.rings.map(r => r.rot);
+    const keepBroken = !resetBroken && Boolean(s.vanishOnPass) && this.rings.length === count;
+    const oldBroken = keepBroken ? this.rings.map(r => Boolean(r.broken)) : [];
     const holeHalf = (s.holeSize * Math.PI / 180) / 2;
     const baseAng = s.holePosition * Math.PI / 180;
     const off = s.holeOffset * Math.PI / 180;
@@ -231,6 +233,7 @@ class Engine {
         arcHoleHalf,
         clearWidth,
         passable,
+        broken: Boolean(oldBroken[i]),
         index: i,
         isOutermost: i === 0,
         isInnermost: i === count - 1
@@ -401,7 +404,7 @@ class Engine {
     this.spawnedCount = 0;
     this.spawnTimer = 0;
     this.totalSpawnSerial = 0;
-    this.rebuildRings();
+    this.rebuildRings(true);
 
     const mode = this.cfg.balls.spawnMode;
     if (mode === 'single') {
@@ -657,8 +660,9 @@ class Engine {
       }
     }
 
-    // Definitive ring-exit detection & off-screen removal.
+    // Definitive ring-exit detection, ring vanish-on-pass, & off-screen removal.
     const outerRing = this.outermostRing;
+    const vanishOnPass = Boolean(cfg.scene.vanishOnPass);
 
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const ball = this.balls[i];
@@ -667,13 +671,34 @@ class Engine {
       const dx = ball.x - this.cx;
       const dy = ball.y - this.cy;
       const od = Math.hypot(dx, dy);
+      const vr = od > 1e-6 ? (dx * ball.vx + dy * ball.vy) / od : 0;
+
+      // Vanish any intact ring once a ball has completely overcome it
+      if (vanishOnPass) {
+        for (let rIdx = this.rings.length - 1; rIdx >= 0; rIdx--) {
+          const ring = this.rings[rIdx];
+          if (ring.broken) continue;
+          const ringClear = ring.R + hw + ball.r;
+          if (od > ringClear + 2 && (vr >= -15 || od > ringClear + 12)) {
+            ring.broken = true;
+            this.pushEvent({
+              type: 'ringVanish',
+              R: ring.R,
+              hc: ring.baseAngle + ring.rot,
+              arcHoleHalf: ring.arcHoleHalf,
+              thickness: this.effWallThickness,
+              isOutermost: ring.isOutermost
+            });
+          }
+        }
+      }
 
       if (outerRing) {
         if (!ball.escaped) {
           const outerClear = outerRing.R + hw + ball.r;
-          if (od > outerClear + 12) {
-            const vr = od > 1e-6 ? (dx * ball.vx + dy * ball.vy) / od : 0;
-            if (vr >= -20 || od > outerClear + 36) {
+          const margin = outerRing.broken ? 2 : 12;
+          if (od > outerClear + margin) {
+            if (vr >= -20 || od > outerClear + 36 || outerRing.broken) {
               ball.escaped = true;
               ball.escapeTime = 0;
               const nx = od > 1e-6 ? dx / od : 1;
@@ -688,8 +713,8 @@ class Engine {
               });
             }
           }
-        } else if (od < outerRing.R - hw) {
-          // If gravity pulled a ball back through a top opening into the ring
+        } else if (!outerRing.broken && od < outerRing.R - hw) {
+          // If gravity pulled a ball back through a top opening into an intact ring
           ball.escaped = false;
           ball.escapeTime = 0;
         }
@@ -709,6 +734,8 @@ class Engine {
   /* ---------------- Capsule-Arc ring collision ---------------- */
 
   collideRing(ball, ring, applyImpulse) {
+    if (ring.broken) return;
+
     const hw = this.effWallThickness * 0.5;
     const minDist = hw + ball.r;
 

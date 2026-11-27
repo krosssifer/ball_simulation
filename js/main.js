@@ -215,6 +215,7 @@ function handleEvents() {
   const effQuality = renderer.effectiveQuality(engine.balls.length);
   const particleCss = rgbCss(renderer.cur.particle);
   const ringCss = rgbCss(renderer.cur.ring);
+  const rimCss = rgbCss(renderer.cur.ringRim);
   const baseBallRgb = hexToRgb(cfg.balls.color);
 
   for (let i = 0; i < engine.events.length; i++) {
@@ -223,6 +224,8 @@ function handleEvents() {
       effects.bounce(ev.x, ev.y, ev.strength, particleCss, effQuality);
     } else if (ev.type === 'hole') {
       effects.hole(ev.x, ev.y, ringCss, ev.isOutermost, effQuality);
+    } else if (ev.type === 'ringVanish') {
+      effects.ringVanish(engine.cx, engine.cy, ev, ringCss, rimCss, effQuality);
     } else if (ev.type === 'escape') {
       const ballRgb = ev.hueShift ? shiftHue(baseBallRgb, ev.hueShift) : baseBallRgb;
       effects.escape(ev.x, ev.y, ev.nx, ev.ny, rgbCss(ballRgb), ringCss, effQuality);

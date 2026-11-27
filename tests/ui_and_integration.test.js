@@ -422,3 +422,34 @@ test('Scenarios 6 & 7: stop and auto-restart wait until all balls fly completely
   assert.equal(restartedWhileOnScreen, false, 'Auto-restart must never wipe balls that are still on screen');
   assert.ok(appAuto.evalExpr('window.__autoRestarts') >= 1, 'Auto-restart should trigger after balls fly off-screen');
 });
+
+test('Vanish-on-pass UI toggle activates ring dissolution, persists across reload, and restores when turned off', () => {
+  const store = new Map();
+  const app1 = bootApp(store);
+  assert.equal(app1.evalExpr('cfg.scene.vanishOnPass'), false);
+
+  app1.evalExpr('cfg.scene.ringCount = 3; cfg.behavior.endMode = "infinite"; cfg.behavior.speed = 4; engine.restart();');
+
+  const vanishToggle = app1.panelBody.findAll(el => el.tagName === 'INPUT' && el.dataset.path === 'scene.vanishOnPass')[0];
+  assert.ok(vanishToggle, 'Expected scene.vanishOnPass toggle in panel');
+  vanishToggle.click();
+  assert.equal(app1.evalExpr('cfg.scene.vanishOnPass'), true);
+
+  let sawDissolve = false;
+  for (let f = 0; f < 1500; f++) {
+    app1.stepFrames(1, 1 / 60);
+    if (app1.evalExpr('effects.vanishingRings.length > 0')) sawDissolve = true;
+    if (app1.evalExpr('engine.rings.some(r => r.broken)')) break;
+  }
+  assert.equal(app1.evalExpr('engine.rings.some(r => r.broken)'), true, 'At least one overcome ring should be broken');
+  assert.equal(sawDissolve, true, 'Dissolve visual effect should trigger on ring vanish');
+
+  // Reloading preserves vanishOnPass = true
+  const app2 = bootApp(store);
+  assert.equal(app2.evalExpr('cfg.scene.vanishOnPass'), true);
+
+  // Turning toggle off restores intact rings immediately
+  vanishToggle.click();
+  assert.equal(app1.evalExpr('cfg.scene.vanishOnPass'), false);
+  assert.equal(app1.evalExpr('engine.rings.every(r => !r.broken)'), true);
+});

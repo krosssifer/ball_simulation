@@ -473,3 +473,37 @@ test('Stage 5: performance benchmark for 1, 20, 50, 80 balls at 4x speed with 5 
   for (let i = 0; i < 80; i++) renderer.updateQuality(1 / 60, 5);
   assert.ok(renderer.quality > 0.9, `Expected quality recovery at 60 FPS, got ${renderer.quality}`);
 });
+
+test('Vanish-on-pass mode: passed rings sequentially break, stop colliding, and restore on restart', () => {
+  const cfg = clone(DEFAULTS);
+  cfg.scene.ringCount = 4;
+  cfg.scene.vanishOnPass = true;
+
+  const engine = new Engine(cfg);
+  engine.setViewport(1280, 800);
+  engine.restart();
+
+  assert.ok(engine.rings.every(r => r.broken === false));
+
+  const vanishedRadii = [];
+  const maxSteps = Math.round(90 / FIXED_DT);
+  for (let s = 0; s < maxSteps; s++) {
+    engine.step(FIXED_DT);
+    for (const ev of engine.events) {
+      if (ev.type === 'ringVanish') vanishedRadii.push(ev.R);
+    }
+    engine.events.length = 0;
+    if (engine.rings.every(r => r.broken)) break;
+  }
+
+  assert.equal(vanishedRadii.length, 4, 'All 4 rings must vanish as the ball overcomes them');
+  // Radii must increase strictly from innermost to outermost
+  for (let i = 0; i < vanishedRadii.length - 1; i++) {
+    assert.ok(vanishedRadii[i] < vanishedRadii[i + 1], 'Rings must vanish from innermost outward');
+  }
+  assert.ok(engine.rings.every(r => r.broken === true));
+
+  // Restart must restore all rings intact
+  engine.restart();
+  assert.ok(engine.rings.every(r => r.broken === false));
+});

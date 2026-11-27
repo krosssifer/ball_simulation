@@ -17,6 +17,7 @@ const MAX_PARTICLES = 260;
 const MAX_PULSES = 34;
 const MAX_FLASHES = 22;
 const MAX_ESCAPES = 14;
+const MAX_VANISHING_RINGS = 10;
 
 function swapPop(arr, idx) {
   const last = arr.length - 1;
@@ -30,6 +31,7 @@ class Effects {
     this.pulses = [];
     this.flashes = [];
     this.escapes = [];
+    this.vanishingRings = [];
     this.outerResonance = 0; // 0..1 subtle outer-ring shimmer after final escape
   }
 
@@ -38,6 +40,7 @@ class Effects {
     this.pulses.length = 0;
     this.flashes.length = 0;
     this.escapes.length = 0;
+    this.vanishingRings.length = 0;
     this.outerResonance = 0;
   }
 
@@ -140,6 +143,51 @@ class Effects {
     }
   }
 
+  ringVanish(cx, cy, ev, ringColorCss, rimColorCss, quality = 1) {
+    const q = Math.max(0.3, Math.min(1, quality));
+    if (this.vanishingRings.length >= MAX_VANISHING_RINGS) {
+      swapPop(this.vanishingRings, 0);
+    }
+    const start = ev.hc + ev.arcHoleHalf;
+    const end = ev.hc - ev.arcHoleHalf + Math.PI * 2;
+    this.vanishingRings.push({
+      cx, cy,
+      R: ev.R,
+      start,
+      end,
+      thickness: ev.thickness || 12,
+      color: ringColorCss,
+      rim: rimColorCss,
+      life: 0,
+      max: 0.42
+    });
+
+    // Delicate radial dust along the dissolving arc
+    const span = Math.max(0.2, end - start);
+    const n = Math.max(8, Math.round(20 * q));
+    for (let i = 0; i < n; i++) {
+      if (this.particles.length >= MAX_PARTICLES) {
+        swapPop(this.particles, 0);
+      }
+      const a = start + ((i + Math.random() * 0.8) / n) * span;
+      const px = cx + Math.cos(a) * ev.R;
+      const py = cy + Math.sin(a) * ev.R;
+      const outSp = 32 + Math.random() * 68;
+      const tanSp = (Math.random() - 0.5) * 40;
+      this.particles.push({
+        x: px,
+        y: py,
+        vx: Math.cos(a) * outSp - Math.sin(a) * tanSp,
+        vy: Math.sin(a) * outSp + Math.cos(a) * tanSp,
+        life: 0,
+        max: 0.3 + Math.random() * 0.24,
+        size: 1.2 + Math.random() * 1.6,
+        color: i % 2 === 0 ? rimColorCss : ringColorCss,
+        streak: false
+      });
+    }
+  }
+
   update(simDt) {
     if (simDt <= 0) return;
 
@@ -186,11 +234,46 @@ class Effects {
         swapPop(this.escapes, i);
       }
     }
+
+    for (let i = this.vanishingRings.length - 1; i >= 0; i--) {
+      const vr = this.vanishingRings[i];
+      vr.life += simDt;
+      if (vr.life >= vr.max) {
+        swapPop(this.vanishingRings, i);
+      }
+    }
   }
 
   draw(ctx, themeCur, themeName = 'minimal', quality = 1) {
     const isNeon = themeName === 'neon';
     const isClean = themeName === 'clean';
+
+    // 0. Dissolving rings (when vanishOnPass mode is enabled)
+    ctx.lineCap = 'round';
+    for (let i = 0; i < this.vanishingRings.length; i++) {
+      const vr = this.vanishingRings[i];
+      const k = vr.life / vr.max;
+      const ease = 1 - Math.pow(1 - k, 3);
+      const fade = Math.pow(1 - k, 1.75);
+      const curR = vr.R + 15 * ease;
+
+      if (isNeon && quality >= 0.5) {
+        ctx.globalAlpha = fade * 0.35;
+        ctx.strokeStyle = vr.color;
+        ctx.lineWidth = vr.thickness * (1.35 - 0.7 * k);
+        ctx.beginPath();
+        ctx.arc(vr.cx, vr.cy, curR, vr.start, vr.end);
+        ctx.stroke();
+      }
+
+      ctx.globalAlpha = fade * (isNeon ? 0.85 : 0.72);
+      ctx.strokeStyle = isNeon ? vr.rim : vr.color;
+      ctx.lineWidth = Math.max(0.8, vr.thickness * (1 - 0.72 * k));
+      ctx.beginPath();
+      ctx.arc(vr.cx, vr.cy, curR, vr.start, vr.end);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
 
     // 1. Intermediate hole-passage soft glints
     for (let i = 0; i < this.flashes.length; i++) {
@@ -296,5 +379,5 @@ class Effects {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { Effects, MAX_PARTICLES, MAX_PULSES, MAX_FLASHES, MAX_ESCAPES };
+  module.exports = { Effects, MAX_PARTICLES, MAX_PULSES, MAX_FLASHES, MAX_ESCAPES, MAX_VANISHING_RINGS };
 }
