@@ -1,22 +1,33 @@
 'use strict';
 
 /* ------------------------------------------------------------------
- * Settings panel UI. Controls are generated from a schema and bound
- * to the config object by dotted path (e.g. "scene.circleSize").
- * Every change calls onChange(path, value) so main.js can apply it
- * live to the simulation and persist it.
+ * Settings panel UI. Controls are generated from a declarative schema
+ * and bound to the config object by dotted path (e.g. "scene.circleSize").
+ *
+ * Key guarantees:
+ *   - Every change immediately updates conditional (`when`) controls
+ *     and synchronizes duplicate paths across sections.
+ *   - Range sliders distinguish live dragging (`committed: false`) from
+ *     release (`committed: true`) so dragging ball count never triggers
+ *     repeated full simulation restarts.
  * ------------------------------------------------------------------ */
+
+if (typeof module !== 'undefined' && typeof PALETTES === 'undefined') {
+  Object.assign(globalThis, require('./config.js'));
+}
 
 function getPath(obj, path) {
   return path.split('.').reduce((o, k) => o[k], obj);
 }
+
 function setPath(obj, path, val) {
   const ks = path.split('.');
   const last = ks.pop();
   ks.reduce((o, k) => o[k], obj)[last] = val;
 }
+
 function trimNum(v) {
-  return String(parseFloat(Number(v).toFixed(2)));
+  return String(parseFloat(Number(v).toFixed(3)));
 }
 
 const SCHEMA = [
@@ -25,15 +36,22 @@ const SCHEMA = [
     controls: [
       { type: 'slider', path: 'scene.circleSize', label: 'Размер окружности', min: 140, max: 460, step: 1, unit: 'px' },
       { type: 'slider', path: 'scene.wallThickness', label: 'Толщина стенки', min: 6, max: 30, step: 1, unit: 'px' },
-      { type: 'slider', path: 'scene.ringCount', label: 'Количество окружностей', min: 1, max: 5, step: 1 },
-      { type: 'slider', path: 'scene.ringSpacing', label: 'Расстояние между окружностями', min: 50, max: 170, step: 1, unit: 'px', when: c => c.scene.ringCount > 1 },
+      { type: 'slider', path: 'scene.ringCount', label: 'Количество окружностей', min: 1, max: 15, step: 1 },
+      { type: 'slider', path: 'scene.ringSpacing', label: 'Расстояние между окружностями', min: 24, max: 170, step: 1, unit: 'px',
+        when: c => c.scene.ringCount > 1 },
       { type: 'slider', path: 'scene.holeSize', label: 'Размер отверстия', min: 8, max: 70, step: 1, unit: '°' },
       { type: 'slider', path: 'scene.holePosition', label: 'Положение отверстия', min: 0, max: 359, step: 1, unit: '°' },
-      { type: 'slider', path: 'scene.holeOffset', label: 'Смещение отверстий', min: 0, max: 180, step: 1, unit: '°', when: c => c.scene.ringCount > 1 },
+      { type: 'slider', path: 'scene.holeOffset', label: 'Смещение отверстий', min: 0, max: 180, step: 1, unit: '°',
+        when: c => c.scene.ringCount > 1 },
+      { type: 'toggle', path: 'scene.vanishOnPass', label: 'Исчезновение пройденных окружностей' },
+      { type: 'toggle', path: 'scene.reverseRotationOnVanish', label: 'Менять вращение при исчезновении',
+        when: c => Boolean(c.scene.vanishOnPass) },
       { type: 'toggle', path: 'scene.rotationEnabled', label: 'Вращение окружностей' },
-      { type: 'segmented', path: 'scene.rotationDirection', label: 'Направление вращения', when: c => c.scene.rotationEnabled,
+      { type: 'segmented', path: 'scene.rotationDirection', label: 'Направление вращения',
+        when: c => Boolean(c.scene.rotationEnabled),
         options: [{ v: -1, l: 'Против часовой' }, { v: 1, l: 'По часовой' }] },
-      { type: 'slider', path: 'scene.rotationSpeed', label: 'Скорость вращения', min: 5, max: 180, step: 1, unit: '°/с', when: c => c.scene.rotationEnabled }
+      { type: 'slider', path: 'scene.rotationSpeed', label: 'Скорость вращения', min: 5, max: 180, step: 1, unit: '°/с',
+        when: c => Boolean(c.scene.rotationEnabled) }
     ]
   },
   {
@@ -45,10 +63,12 @@ const SCHEMA = [
           { v: 'multiple', l: 'Несколько' },
           { v: 'sequential', l: 'Последовательно' }
         ] },
-      { type: 'slider', path: 'balls.count', label: 'Количество шариков', min: 2, max: 20, step: 1,
+      { type: 'slider', path: 'balls.count', label: 'Количество шариков', min: 2, max: 80, step: 1,
         when: c => c.balls.spawnMode === 'multiple' || (c.balls.spawnMode === 'sequential' && !c.balls.infiniteSpawn) },
-      { type: 'toggle', path: 'balls.infiniteSpawn', label: 'Бесконечное появление', when: c => c.balls.spawnMode === 'sequential' },
-      { type: 'slider', path: 'balls.spawnInterval', label: 'Интервал появления', min: 0.3, max: 10, step: 0.1, unit: 'с', when: c => c.balls.spawnMode === 'sequential' },
+      { type: 'toggle', path: 'balls.infiniteSpawn', label: 'Бесконечное появление',
+        when: c => c.balls.spawnMode === 'sequential' },
+      { type: 'slider', path: 'balls.spawnInterval', label: 'Интервал появления', min: 0.3, max: 10, step: 0.1, unit: 'с',
+        when: c => c.balls.spawnMode === 'sequential' },
       { type: 'slider', path: 'balls.size', label: 'Размер шарика', min: 6, max: 30, step: 1, unit: 'px' },
       { type: 'slider', path: 'balls.mass', label: 'Масса', min: 0.2, max: 5, step: 0.1 },
       { type: 'slider', path: 'balls.initialSpeed', label: 'Начальная скорость', min: 50, max: 800, step: 10, unit: 'px/s' },
@@ -127,15 +147,25 @@ class PanelUI {
     this.onChange = onChange;
     this.actions = actions;
     this.controls = [];
+    this.warningEl = null;
     this.build();
   }
 
   build() {
     this.root.innerHTML = '';
     this.controls = [];
+
+    // Inline compatibility notice inside the panel
+    const warn = document.createElement('div');
+    warn.className = 'panel-warning';
+    warn.hidden = true;
+    this.root.appendChild(warn);
+    this.warningEl = warn;
+
     for (const section of SCHEMA) {
       const det = document.createElement('details');
       det.className = 'section';
+      det.dataset.section = section.id;
       if (section.open) det.open = true;
       const sum = document.createElement('summary');
       sum.textContent = section.title;
@@ -162,6 +192,8 @@ class PanelUI {
       grid.className = 'btn-grid';
       for (const b of def.buttons) {
         const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.action = b.action;
         btn.className = 'btn' + (b.wide ? ' wide' : '') + (b.danger ? ' danger' : '');
         btn.textContent = b.label;
         btn.addEventListener('click', () => this.actions[b.action]());
@@ -173,6 +205,7 @@ class PanelUI {
 
     const wrap = document.createElement('div');
     wrap.className = 'ctl';
+    wrap.dataset.path = def.path;
 
     if (def.type === 'slider') {
       const head = document.createElement('div');
@@ -183,43 +216,61 @@ class PanelUI {
       val.className = 'val';
       head.appendChild(label);
       head.appendChild(val);
+
       const input = document.createElement('input');
       input.type = 'range';
-      input.min = def.min; input.max = def.max; input.step = def.step;
+      input.min = def.min;
+      input.max = def.max;
+      input.step = def.step;
+      input.dataset.path = def.path;
+
       const fmt = v => def.unit ? trimNum(v) + ' ' + def.unit : trimNum(v);
+      const entry = {
+        def,
+        el: wrap,
+        input,
+        refresh: (skipInput) => {
+          const v = getPath(this.cfg, def.path);
+          if (!skipInput) input.value = v;
+          val.textContent = fmt(v);
+        }
+      };
+
       input.addEventListener('input', () => {
         const v = parseFloat(input.value);
         setPath(this.cfg, def.path, v);
         val.textContent = fmt(v);
-        this.onChange(def.path, v);
+        this.refreshExcept(entry);
+        this.onChange(def.path, v, { committed: false, source: 'slider-input' });
       });
+
+      input.addEventListener('change', () => {
+        const v = parseFloat(input.value);
+        setPath(this.cfg, def.path, v);
+        val.textContent = fmt(v);
+        this.refresh();
+        this.onChange(def.path, v, { committed: true, source: 'slider-change' });
+      });
+
       wrap.appendChild(head);
       wrap.appendChild(input);
-      this.controls.push({
-        def, el: wrap,
-        refresh: () => {
-          const v = getPath(this.cfg, def.path);
-          input.value = v;
-          val.textContent = fmt(v);
-        }
-      });
+      this.controls.push(entry);
     } else if (def.type === 'segmented') {
       const label = document.createElement('label');
+      label.className = 'seg-label';
       label.textContent = def.label;
-      label.style.display = 'block';
-      label.style.marginBottom = '6px';
-      label.style.fontSize = '13px';
       const seg = document.createElement('div');
       seg.className = 'seg';
       const btns = [];
       for (const opt of def.options) {
         const btn = document.createElement('button');
         btn.type = 'button';
+        btn.dataset.value = String(opt.v);
         btn.textContent = opt.l;
         btn.addEventListener('click', () => {
           setPath(this.cfg, def.path, opt.v);
-          this.onChange(def.path, opt.v);
           this.refresh();
+          this.onChange(def.path, opt.v, { committed: true, source: 'segmented' });
         });
         seg.appendChild(btn);
         btns.push({ btn, v: opt.v });
@@ -227,7 +278,9 @@ class PanelUI {
       wrap.appendChild(label);
       wrap.appendChild(seg);
       this.controls.push({
-        def, el: wrap,
+        def,
+        el: wrap,
+        btns,
         refresh: () => {
           const v = getPath(this.cfg, def.path);
           for (const b of btns) b.btn.classList.toggle('active', b.v === v);
@@ -243,20 +296,27 @@ class PanelUI {
       sw.className = 'switch';
       const input = document.createElement('input');
       input.type = 'checkbox';
+      input.dataset.path = def.path;
       const track = document.createElement('span');
       track.className = 'track';
       sw.appendChild(input);
       sw.appendChild(track);
       row.appendChild(lab);
       row.appendChild(sw);
+
       input.addEventListener('change', () => {
-        setPath(this.cfg, def.path, input.checked);
-        this.onChange(def.path, input.checked);
+        const checked = Boolean(input.checked);
+        setPath(this.cfg, def.path, checked);
+        this.refresh();
+        this.onChange(def.path, checked, { committed: true, source: 'toggle' });
       });
+
       wrap.appendChild(row);
       this.controls.push({
-        def, el: wrap,
-        refresh: () => { input.checked = !!getPath(this.cfg, def.path); }
+        def,
+        el: wrap,
+        input,
+        refresh: () => { input.checked = Boolean(getPath(this.cfg, def.path)); }
       });
     } else if (def.type === 'color') {
       const head = document.createElement('div');
@@ -264,16 +324,19 @@ class PanelUI {
       const label = document.createElement('label');
       label.textContent = def.label;
       head.appendChild(label);
+
       const row = document.createElement('div');
       row.className = 'color-row';
       const input = document.createElement('input');
       input.type = 'color';
+      input.dataset.path = def.path;
       input.addEventListener('input', () => {
         setPath(this.cfg, def.path, input.value);
-        this.onChange(def.path, input.value);
         this.refresh();
+        this.onChange(def.path, input.value, { committed: true, source: 'color' });
       });
       row.appendChild(input);
+
       const swWrap = document.createElement('div');
       swWrap.className = 'swatches';
       const swBtns = [];
@@ -286,8 +349,8 @@ class PanelUI {
         s.setAttribute('aria-label', p.name);
         s.addEventListener('click', () => {
           setPath(this.cfg, def.path, p.value);
-          this.onChange(def.path, p.value);
           this.refresh();
+          this.onChange(def.path, p.value, { committed: true, source: 'swatch' });
         });
         swWrap.appendChild(s);
         swBtns.push({ el: s, value: p.value });
@@ -296,7 +359,9 @@ class PanelUI {
       wrap.appendChild(head);
       wrap.appendChild(row);
       this.controls.push({
-        def, el: wrap,
+        def,
+        el: wrap,
+        input,
         refresh: () => {
           const v = getPath(this.cfg, def.path);
           input.value = v;
@@ -309,14 +374,41 @@ class PanelUI {
     return wrap;
   }
 
-  refresh() {
+  refreshExcept(activeEntry) {
     for (const c of this.controls) {
-      if (c.def.when) c.el.style.display = c.def.when(this.cfg) ? '' : 'none';
-      c.refresh();
+      if (c.def.when) {
+        const visible = Boolean(c.def.when(this.cfg));
+        c.el.style.display = visible ? '' : 'none';
+        c.el.hidden = !visible;
+      } else {
+        c.el.hidden = false;
+      }
+      c.refresh(c === activeEntry);
+    }
+  }
+
+  refresh() {
+    this.refreshExcept(null);
+  }
+
+  setWarning(message) {
+    if (!this.warningEl) return;
+    if (message) {
+      this.warningEl.textContent = message;
+      this.warningEl.hidden = false;
+    } else {
+      this.warningEl.textContent = '';
+      this.warningEl.hidden = true;
     }
   }
 
   setPaused(paused) {
-    if (this.pauseBtn) this.pauseBtn.textContent = paused ? 'Продолжить' : 'Пауза';
+    if (this.pauseBtn) {
+      this.pauseBtn.textContent = paused ? 'Продолжить' : 'Пауза';
+    }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { PanelUI, SCHEMA, getPath, setPath, trimNum };
 }
