@@ -453,3 +453,49 @@ test('Vanish-on-pass UI toggle activates ring dissolution, persists across reloa
   assert.equal(app1.evalExpr('cfg.scene.vanishOnPass'), false);
   assert.equal(app1.evalExpr('engine.rings.every(r => !r.broken)'), true);
 });
+
+test('Max ringCount is 15 in UI and reverseRotationOnVanish toggle auto-enables rotation, flips spin, and persists', () => {
+  const store = new Map();
+  const app1 = bootApp(store);
+
+  const ringCountSlider = app1.panelBody.findAll(el => el.tagName === 'INPUT' && el.dataset.path === 'scene.ringCount')[0];
+  assert.equal(Number(ringCountSlider.max), 15);
+
+  const findCtl = p => app1.panelBody.findAll(el => el.classList.contains('ctl') && el.dataset.path === p)[0];
+  const revRow = findCtl('scene.reverseRotationOnVanish');
+  assert.ok(revRow, 'Expected scene.reverseRotationOnVanish row in scene section');
+  assert.equal(revRow.style.display, 'none', 'reverseRotationOnVanish should be hidden while vanishOnPass is off');
+
+  // Enable vanishOnPass -> reverseRotationOnVanish row becomes visible immediately
+  const vanishToggle = app1.panelBody.findAll(el => el.tagName === 'INPUT' && el.dataset.path === 'scene.vanishOnPass')[0];
+  vanishToggle.click();
+  assert.equal(revRow.style.display, '', 'reverseRotationOnVanish should appear when vanishOnPass is enabled');
+
+  // Enable reverseRotationOnVanish while rotationEnabled is initially false -> auto-enables rotationEnabled
+  assert.equal(app1.evalExpr('cfg.scene.rotationEnabled'), false);
+  const revToggle = app1.panelBody.findAll(el => el.tagName === 'INPUT' && el.dataset.path === 'scene.reverseRotationOnVanish')[0];
+  revToggle.click();
+  assert.equal(app1.evalExpr('cfg.scene.reverseRotationOnVanish'), true);
+  assert.equal(app1.evalExpr('cfg.scene.rotationEnabled'), true, 'Enabling reverseRotationOnVanish should auto-enable rotationEnabled');
+  assert.equal(findCtl('scene.rotationSpeed').style.display, '', 'Rotation controls should become visible immediately');
+
+  // Set 8 rings via the UI slider, run until first ring vanishes, verify omega reversed
+  ringCountSlider.value = '8';
+  ringCountSlider.dispatchEvent({ type: 'input' });
+  ringCountSlider.dispatchEvent({ type: 'change' });
+  app1.evalExpr('cfg.scene.holeSize = 50; cfg.behavior.speed = 4; engine.restart();');
+  const initialSign = app1.evalExpr('Math.sign(engine.outermostRing.omega)');
+  assert.equal(initialSign, 1);
+
+  for (let f = 0; f < 1500; f++) {
+    app1.stepFrames(1, 1 / 60);
+    if (app1.evalExpr('engine.rings.filter(r => r.broken).length === 1')) break;
+  }
+  assert.equal(app1.evalExpr('Math.sign(engine.outermostRing.omega)'), -1, 'First vanished ring should reverse rotation direction');
+
+  // Verify persistence across reload
+  const app2 = bootApp(store);
+  assert.equal(app2.evalExpr('cfg.scene.ringCount'), 8);
+  assert.equal(app2.evalExpr('cfg.scene.vanishOnPass'), true);
+  assert.equal(app2.evalExpr('cfg.scene.reverseRotationOnVanish'), true);
+});

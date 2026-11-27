@@ -55,6 +55,7 @@ class Engine {
     this.effWallThickness = config.scene.wallThickness;
     this.effBallRadius = config.balls.size;
     this.effSpacing = config.scene.ringSpacing;
+    this.rotationDirFactor = 1;
     this.compatibility = {
       holeBlocked: false,
       minRequiredHoleDeg: 0,
@@ -133,11 +134,11 @@ class Engine {
     const w = this.w || 1280;
     const h = this.h || 800;
     const minDim = Math.max(220, Math.min(w, h));
-    const count = Math.max(1, Math.min(5, Math.round(s.ringCount)));
+    const count = Math.max(1, Math.min(15, Math.round(s.ringCount)));
 
     const rawT = Math.max(4, s.wallThickness);
     const rawBallR = Math.max(4, this.cfg.balls.size);
-    const rawSpacing = Math.max(30, s.ringSpacing);
+    const rawSpacing = Math.max(20, s.ringSpacing);
 
     // Viewport-adaptive outer radius that still honors manual slider control.
     const viewportScale = Math.max(0.42, Math.min(1.45, minDim / 800));
@@ -147,42 +148,49 @@ class Engine {
     // When multiple concentric rings are active, allow outerR to use available
     // viewport space if the base radius would excessively cram the corridors.
     if (count > 1) {
-      const minCorridorTarget = rawT + 2 * rawBallR + 22;
-      const minInnerTarget = Math.max(88 * viewportScale, rawT * 0.5 + 2.6 * rawBallR + 24);
+      const minCorridorTarget = rawT + 2 * rawBallR + (count > 5 ? 12 : 22);
+      const minInnerTarget = Math.max(
+        (count > 5 ? 56 : 88) * viewportScale,
+        rawT * 0.5 + (count > 5 ? 3.6 : 2.6) * rawBallR + (count > 5 ? 14 : 24)
+      );
       const multiTargetR = minInnerTarget + (count - 1) * minCorridorTarget;
       if (outerR < multiTargetR) {
         outerR = Math.min(viewportMaxR, Math.max(outerR, multiTargetR));
       }
     }
 
-    // Enforce strict geometric non-overlap across all rings and balls, giving
-    // the innermost circle balanced interior proportions (~2.2x ball radius):
-    //   innerWall = R_inner - effT/2 >= 2.2 * effBallR + minClear
-    //   corridor  = effSpacing - effT >= 2.0 * effBallR + minClear
-    const minClear = 6;
+    // Enforce strict geometric non-overlap across all rings (1..15) and balls:
+    //   innerWall = R_inner - effT/2 >= innerRatio * effBallR + effClear
+    //   corridor  = effSpacing - effT >= 2.0 * effBallR + effClear
+    const baseClear = 6;
+    const innerRatio = count > 5 ? 3.4 : 2.2;
+    const ballCoeff = 2 * count + (innerRatio - 2);
     let effT = rawT;
     let effBallR = rawBallR;
+    let effClear = baseClear;
     let geometryAdjusted = false;
 
-    const ballCoeff = 2 * count + 0.2;
-    const minRequiredR = (count - 0.5) * effT + ballCoeff * effBallR + minClear * count;
+    const minRequiredR = (count - 0.5) * effT + ballCoeff * effBallR + baseClear * count;
     if (minRequiredR > outerR) {
-      const avail = Math.max(count * 4, outerR - minClear * count);
+      effClear = count > 5
+        ? Math.max(1.8, Math.min(baseClear, (outerR * 0.22) / count))
+        : baseClear;
+      const avail = Math.max(count * 3, outerR - effClear * count);
       const denom = (count - 0.5) * rawT + ballCoeff * rawBallR;
-      const k = Math.max(0.1, avail / Math.max(1, denom));
-      effT = Math.max(2, rawT * k);
-      effBallR = Math.max(2, rawBallR * k);
+      const k = Math.max(0.06, avail / Math.max(1, denom));
+      effT = Math.max(1.5, rawT * k);
+      effBallR = Math.max(1.8, rawBallR * k);
       geometryAdjusted = true;
     }
 
     let effSpacing = rawSpacing * (viewportScale < 0.85 ? Math.max(0.65, viewportScale) : 1);
     if (count > 1) {
-      const minSpacing = effT + 2 * effBallR + minClear;
+      const minSpacing = effT + 2 * effBallR + effClear;
       const desiredInnerR = Math.max(
-        outerR * 0.25,
-        effT * 0.5 + 2.4 * effBallR + 16
+        outerR * (count > 5 ? 0.14 : 0.25),
+        effT * 0.5 + (innerRatio + 0.2) * effBallR + (count > 5 ? 8 : 16)
       );
-      const hardMinInnerR = effT * 0.5 + 2.2 * effBallR + minClear;
+      const hardMinInnerR = effT * 0.5 + innerRatio * effBallR + effClear;
       const minInnerCenterR = Math.max(
         hardMinInnerR,
         Math.min(desiredInnerR, outerR - (count - 1) * minSpacing)
@@ -202,12 +210,17 @@ class Engine {
     const oldRots = this.rings.map(r => r.rot);
     const keepBroken = !resetBroken && Boolean(s.vanishOnPass) && this.rings.length === count;
     const oldBroken = keepBroken ? this.rings.map(r => Boolean(r.broken)) : [];
+    if (resetBroken || !s.vanishOnPass || !s.reverseRotationOnVanish || this.rings.length !== count) {
+      this.rotationDirFactor = 1;
+    }
     const holeHalf = (s.holeSize * Math.PI / 180) / 2;
     const baseAng = s.holePosition * Math.PI / 180;
     const off = s.holeOffset * Math.PI / 180;
+    const effDir = s.rotationDirection * (this.rotationDirFactor || 1);
     const baseOmega = s.rotationEnabled
-      ? s.rotationDirection * s.rotationSpeed * Math.PI / 180
+      ? effDir * s.rotationSpeed * Math.PI / 180
       : 0;
+    const gradStep = count > 5 ? 0.72 / (count - 1) : 0.18;
 
     const hw = effT / 2;
     this.rings = [];
@@ -222,7 +235,7 @@ class Engine {
       const passable = clearWidth > 2 * effBallR + 1.0;
 
       // Gentle radial speed gradient on inner rings prevents multi-ring phase-locking
-      const omega = baseOmega * (1 + i * 0.18);
+      const omega = baseOmega * (1 + i * gradStep);
 
       this.rings.push({
         R,
@@ -625,9 +638,14 @@ class Engine {
 
     // Adaptive substepping prevents high-speed or fast-rotation tunneling.
     const hw = this.effWallThickness * 0.5;
-    const maxRingSpeed = this.rings.length > 0
-      ? Math.abs(this.rings[0].omega) * this.rings[0].R
-      : 0;
+    let maxRingSpeed = 0;
+    for (let i = 0; i < this.rings.length; i++) {
+      const r = this.rings[i];
+      if (!r.broken) {
+        const rs = Math.abs(r.omega) * r.R;
+        if (rs > maxRingSpeed) maxRingSpeed = rs;
+      }
+    }
     const maxSafeStep = Math.max(2.0, Math.min(this.effBallRadius, hw) * 0.65);
     const maxDisp = (maxSpeed + maxRingSpeed * 0.5) * dt;
     const substeps = Math.max(1, Math.min(12, Math.ceil(maxDisp / maxSafeStep)));
@@ -663,6 +681,7 @@ class Engine {
     // Definitive ring-exit detection, ring vanish-on-pass, & off-screen removal.
     const outerRing = this.outermostRing;
     const vanishOnPass = Boolean(cfg.scene.vanishOnPass);
+    const reverseOnVanish = Boolean(cfg.scene.reverseRotationOnVanish);
 
     for (let i = this.balls.length - 1; i >= 0; i--) {
       const ball = this.balls[i];
@@ -681,13 +700,20 @@ class Engine {
           const ringClear = ring.R + hw + ball.r;
           if (od > ringClear + 2 && (vr >= -15 || od > ringClear + 12)) {
             ring.broken = true;
+            if (reverseOnVanish) {
+              this.rotationDirFactor = (this.rotationDirFactor || 1) * -1;
+              for (let k = 0; k < this.rings.length; k++) {
+                this.rings[k].omega = -this.rings[k].omega;
+              }
+            }
             this.pushEvent({
               type: 'ringVanish',
               R: ring.R,
               hc: ring.baseAngle + ring.rot,
               arcHoleHalf: ring.arcHoleHalf,
               thickness: this.effWallThickness,
-              isOutermost: ring.isOutermost
+              isOutermost: ring.isOutermost,
+              reversedRotation: reverseOnVanish && Boolean(cfg.scene.rotationEnabled)
             });
           }
         }

@@ -56,6 +56,12 @@ function applyChange(path, _val, meta) {
   }
 
   if (path.startsWith('scene.')) {
+    if (path === 'scene.reverseRotationOnVanish' && cfg.scene.reverseRotationOnVanish && !cfg.scene.rotationEnabled) {
+      cfg.scene.rotationEnabled = true;
+      ui.refresh();
+    } else if (path === 'scene.rotationDirection') {
+      engine.rotationDirFactor = 1;
+    }
     engine.rebuildRings();
     updateCompatibilityUI();
   } else if (path === 'balls.size' || path === 'balls.mass') {

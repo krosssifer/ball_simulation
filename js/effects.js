@@ -17,7 +17,7 @@ const MAX_PARTICLES = 260;
 const MAX_PULSES = 34;
 const MAX_FLASHES = 22;
 const MAX_ESCAPES = 14;
-const MAX_VANISHING_RINGS = 10;
+const MAX_VANISHING_RINGS = 20;
 
 function swapPop(arr, idx) {
   const last = arr.length - 1;

@@ -507,3 +507,102 @@ test('Vanish-on-pass mode: passed rings sequentially break, stop colliding, and 
   engine.restart();
   assert.ok(engine.rings.every(r => r.broken === false));
 });
+
+test('15 concentric rings: non-overlapping across desktop/mobile and sequential inner-to-outer escape', () => {
+  const cfg = clone(DEFAULTS);
+  cfg.scene.ringCount = 15;
+  cfg.scene.holeSize = 48;
+
+  const engine = new Engine(cfg);
+  engine.setViewport(1280, 800);
+  engine.restart();
+
+  assert.equal(engine.rings.length, 15);
+  for (let i = 0; i < engine.rings.length - 1; i++) {
+    const gap = engine.rings[i].R - engine.rings[i + 1].R - engine.effWallThickness;
+    assert.ok(
+      gap >= 2 * engine.effBallRadius + 1,
+      `Expected non-overlapping corridor at ring ${i}, got gap=${gap}`
+    );
+  }
+  const innerClear = engine.innermostRing.R - engine.effWallThickness * 0.5;
+  assert.ok(innerClear > 2 * engine.effBallRadius, 'Innermost of 15 rings must comfortably house the ball');
+
+  const d0 = Math.hypot(engine.balls[0].x - engine.cx, engine.balls[0].y - engine.cy);
+  assert.ok(d0 + engine.balls[0].r < innerClear, 'Ball must spawn strictly inside innermost of 15 rings');
+
+  // Extreme mobile cramped check (320x568 with thick walls & large ball slider)
+  const cramped = clone(DEFAULTS);
+  cramped.scene.ringCount = 15;
+  cramped.scene.wallThickness = 30;
+  cramped.balls.size = 30;
+  sanitizeConfig(cramped);
+  assert.equal(cramped.scene.ringCount, 15);
+  const mobileEngine = new Engine(cramped);
+  mobileEngine.setViewport(320, 568);
+  mobileEngine.restart();
+  assert.equal(mobileEngine.rings.length, 15);
+  assert.ok(mobileEngine.innermostRing.R > mobileEngine.effWallThickness * 0.5 + mobileEngine.effBallRadius);
+  for (let i = 0; i < 14; i++) {
+    assert.ok(mobileEngine.rings[i].R - mobileEngine.rings[i + 1].R > mobileEngine.effWallThickness + 2 * mobileEngine.effBallRadius);
+  }
+
+  // Simulate sequential escape through all 15 rings on desktop
+  const maxSteps = Math.round(180 / FIXED_DT);
+  let escaped = false;
+  for (let s = 0; s < maxSteps; s++) {
+    engine.step(FIXED_DT);
+    if (engine.balls.some(b => b.escaped)) {
+      escaped = true;
+      break;
+    }
+  }
+  assert.equal(escaped, true, 'Ball must sequentially traverse and escape all 15 concentric rings');
+});
+
+test('Reverse rotation on vanish: flips omega sign on each vanished ring, preserves across rebuild, and resets on restart', () => {
+  const cfg = clone(DEFAULTS);
+  cfg.scene.ringCount = 5;
+  cfg.scene.vanishOnPass = true;
+  cfg.scene.reverseRotationOnVanish = true;
+  cfg.scene.rotationEnabled = true;
+  cfg.scene.rotationDirection = 1;
+  cfg.scene.rotationSpeed = 40;
+  cfg.scene.holeSize = 52;
+
+  const engine = new Engine(cfg);
+  engine.setViewport(1280, 800);
+  engine.restart();
+
+  assert.ok(engine.outermostRing.omega > 0, 'Initial outer ring omega should be positive');
+
+  const signsAfterEachVanish = [];
+  const maxSteps = Math.round(120 / FIXED_DT);
+  for (let s = 0; s < maxSteps; s++) {
+    engine.step(FIXED_DT);
+    for (const ev of engine.events) {
+      if (ev.type === 'ringVanish') {
+        assert.equal(ev.reversedRotation, true);
+        signsAfterEachVanish.push(Math.sign(engine.outermostRing.omega));
+      }
+    }
+    engine.events.length = 0;
+    if (signsAfterEachVanish.length === 1) {
+      // Live speed edit must preserve the flipped rotation direction
+      cfg.scene.rotationSpeed = 55;
+      engine.rebuildRings();
+      assert.equal(Math.sign(engine.outermostRing.omega), -1, 'Live rebuildRings must preserve flipped direction');
+    }
+    if (signsAfterEachVanish.length >= 4) break;
+  }
+
+  assert.deepEqual(
+    signsAfterEachVanish.slice(0, 4),
+    [-1, 1, -1, 1],
+    'Each vanished ring must reverse rotation direction of remaining rings'
+  );
+
+  engine.restart();
+  assert.equal(engine.rotationDirFactor, 1);
+  assert.ok(engine.outermostRing.omega > 0, 'Restart must restore initial rotation direction');
+});

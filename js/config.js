@@ -9,17 +9,18 @@ const STORAGE_KEY = 'ball-escape-settings-v2';
 
 const DEFAULTS = {
   scene: {
-    circleSize: 280,        // reference radius of the outermost ring, px
-    wallThickness: 14,      // ring wall thickness, px
-    ringCount: 1,           // number of concentric rings (1..5)
-    ringSpacing: 84,        // distance between ring centerlines, px
-    holeSize: 42,           // hole angular width, degrees
-    holePosition: 90,       // hole center angle, degrees (90 = bottom)
-    holeOffset: 0,          // extra angle offset per inner ring, degrees
-    vanishOnPass: false,    // vanish each ring once a ball passes through it
+    circleSize: 280,                // reference radius of the outermost ring, px
+    wallThickness: 14,              // ring wall thickness, px
+    ringCount: 1,                   // number of concentric rings (1..15)
+    ringSpacing: 84,                // distance between ring centerlines, px
+    holeSize: 42,                   // hole angular width, degrees
+    holePosition: 90,               // hole center angle, degrees (90 = bottom)
+    holeOffset: 0,                  // extra angle offset per inner ring, degrees
+    vanishOnPass: false,            // vanish each ring once a ball passes through it
+    reverseRotationOnVanish: false, // flip rotation direction whenever a ring vanishes
     rotationEnabled: false,
-    rotationDirection: 1,   // 1 = clockwise, -1 = counter-clockwise
-    rotationSpeed: 28       // degrees per second
+    rotationDirection: 1,           // 1 = clockwise, -1 = counter-clockwise
+    rotationSpeed: 28               // degrees per second
   },
   balls: {
     spawnMode: 'single',    // 'single' | 'multiple' | 'sequential'
@@ -146,12 +147,13 @@ function sanitizeConfig(cfg) {
   const s = cfg.scene;
   s.circleSize = clampNum(s.circleSize, 140, 460, DEFAULTS.scene.circleSize);
   s.wallThickness = clampNum(s.wallThickness, 6, 30, DEFAULTS.scene.wallThickness);
-  s.ringCount = Math.round(clampNum(s.ringCount, 1, 5, DEFAULTS.scene.ringCount));
-  s.ringSpacing = clampNum(s.ringSpacing, 50, 170, DEFAULTS.scene.ringSpacing);
+  s.ringCount = Math.round(clampNum(s.ringCount, 1, 15, DEFAULTS.scene.ringCount));
+  s.ringSpacing = clampNum(s.ringSpacing, 24, 170, DEFAULTS.scene.ringSpacing);
   s.holeSize = clampNum(s.holeSize, 8, 70, DEFAULTS.scene.holeSize);
   s.holePosition = clampNum(s.holePosition, 0, 359, DEFAULTS.scene.holePosition);
   s.holeOffset = clampNum(s.holeOffset, 0, 180, DEFAULTS.scene.holeOffset);
   s.vanishOnPass = Boolean(s.vanishOnPass);
+  s.reverseRotationOnVanish = Boolean(s.reverseRotationOnVanish);
   s.rotationEnabled = Boolean(s.rotationEnabled);
   s.rotationDirection = s.rotationDirection === -1 ? -1 : 1;
   s.rotationSpeed = clampNum(s.rotationSpeed, 5, 180, DEFAULTS.scene.rotationSpeed);

@@ -167,6 +167,12 @@ class Renderer {
     const rimCss = rgbCss(cur.ringRim);
     const innerCss = rgbCss(cur.ringInner);
 
+    let intactCount = 0;
+    for (let idx = 0; idx < engine.rings.length; idx++) {
+      if (!engine.rings[idx].broken) intactCount++;
+    }
+    const denseRings = intactCount > 6;
+
     for (let idx = 0; idx < engine.rings.length; idx++) {
       const ring = engine.rings[idx];
       if (ring.broken) continue;
@@ -185,7 +191,7 @@ class Renderer {
         ctx.arc(engine.cx + 2, engine.cy + 4.5, ring.R, start, end);
         ctx.lineWidth = t + 1;
         ctx.strokeStyle = 'rgba(20, 22, 30, ' + (cur.shadowAlpha * 0.85).toFixed(3) + ')';
-        if (effQuality >= 0.65) {
+        if (effQuality >= 0.65 && (!denseRings || ring.isOutermost)) {
           ctx.shadowColor = 'rgba(18, 20, 28, ' + cur.shadowAlpha.toFixed(3) + ')';
           ctx.shadowBlur = 11;
         }
@@ -200,15 +206,15 @@ class Renderer {
           // Layered neon aura: wide soft outer halo + tighter inner glow
           ctx.beginPath();
           ctx.arc(engine.cx, engine.cy, ring.R, start, end);
-          ctx.lineWidth = t + 14 * Math.min(1.2, 0.5 + glowMult * 0.6);
+          ctx.lineWidth = t + (denseRings ? 9 : 14) * Math.min(1.2, 0.5 + glowMult * 0.6);
           ctx.strokeStyle = rgbaCss(cur.ring, (0.11 + resonance * 0.09) * Math.min(1.2, glowMult + 0.2));
           ctx.stroke();
 
           ctx.beginPath();
           ctx.arc(engine.cx, engine.cy, ring.R, start, end);
-          ctx.lineWidth = t + 5;
+          ctx.lineWidth = t + (denseRings ? 3.5 : 5);
           ctx.strokeStyle = rgbaCss(cur.ring, 0.24 + resonance * 0.12);
-          if (effQuality >= 0.6) {
+          if (effQuality >= 0.6 && (!denseRings || ring.isOutermost)) {
             ctx.shadowColor = ringCss;
             ctx.shadowBlur = glowStrength;
           }
